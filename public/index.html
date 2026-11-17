@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>LoRA Studio</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/civitai.css">
+<link rel="stylesheet" href="/css/grid.css">
+<link rel="stylesheet" href="/css/extra.css">
+</head>
+<body>
+<header class="shell-top">
+  <div class="shell-brand"><span class="mark"><i></i><i></i><i></i><i></i></span>LORA STUDIO</div>
+  <nav class="shell-tabs" id="tabs">
+    <button type="button" data-tab="loras">My LoRAs<span class="count" id="tabcount-loras"></span></button>
+    <button type="button" data-tab="civitai">Civitai</button>
+    <button type="button" data-tab="prompt">Prompt</button>
+    <button type="button" data-tab="grid">Grid<span class="count" id="tabcount-grid"></span></button>
+    <button type="button" data-tab="strip">Strip<span class="count" id="tabcount-strip"></span></button>
+    <button type="button" data-tab="workflow">Workflow<span class="count" id="tabcount-workflow"></span></button>
+    <button type="button" data-tab="tester">Tester</button>
+  </nav>
+  <div class="shell-end" id="appVersion"></div>
+</header>
+
+<!-- ============================================================ My LoRAs -->
+<section class="tab" id="tab-loras" hidden>
+  <div class="lb-bar">
+    <button class="ui-btn primary" id="lb-browse" type="button" title="Open a folder window and pick the folder that holds your LoRAs. It is saved and checked for new LoRAs on every startup.">📁 Choose LoRA folder…</button>
+    <input class="ui-input" type="text" id="lb-path" placeholder="or type / paste a folder path" autocomplete="off" aria-label="LoRA folder path">
+    <button class="ui-btn" id="lb-load" type="button">Load once</button>
+    <button class="ui-btn" id="lb-save" type="button" title="Save this folder; it is checked for new LoRAs on every startup">＋ Save folder</button>
+    <button class="ui-btn" id="lb-refresh" type="button" hidden>↻ Refresh</button>
+  </div>
+  <div class="lb-folders" id="lb-folders"></div>
+  <div class="lb-tools" id="lb-tools" hidden>
+    <input class="ui-input" type="search" id="lb-search" placeholder="Search name, trigger word, base model, Civitai title, subfolder…" autocomplete="off">
+    <select class="ui-select" id="lb-sort" title="Sort order">
+      <option value="name">Sort: Name A→Z</option>
+      <option value="name-desc">Sort: Name Z→A</option>
+      <option value="newest">Sort: Newest first</option>
+      <option value="oldest">Sort: Oldest first</option>
+      <option value="size">Sort: Largest first</option>
+      <option value="base">Sort: Base model</option>
+    </select>
+    <select class="ui-select" id="lb-base" title="Filter by base model"><option value="">Base model: all</option></select>
+    <select class="ui-select" id="lb-group" title="Group cards by">
+      <option value="subfolder">Group: subfolder</option>
+      <option value="folder">Group: folder</option>
+      <option value="base">Group: base model</option>
+      <option value="none">Group: none</option>
+    </select>
+    <label class="ui-check"><input type="checkbox" id="lb-onlyNew"> only NEW</label>
+    <label class="ui-check"><input type="checkbox" id="lb-onlyCivitai"> on Civitai</label>
+    <button class="ui-btn small" id="lb-collapse" type="button">⇕ Collapse all</button>
+  </div>
+  <div class="lb-status" id="lb-status"></div>
+  <div class="lb-list" id="lb-list">
+    <div class="empty-state"><p>No LoRAs loaded yet</p><p>Click <b>📁 Choose LoRA folder…</b> and pick the folder that holds your .safetensors files.</p></div>
+  </div>
+</section>
+
+<!-- ============================================================ Civitai -->
+<section class="tab" id="tab-civitai" hidden>
+  <button id="cv-toggleFilters" class="btn secondary mobile-filters" aria-expanded="false" aria-controls="cv-imageFilters">Show image filters</button>
+  <div class="layout">
+    <aside id="cv-imageFilters" class="sidebar">
+      <div class="sidebar-head"><span>SEARCH CONTROLS</span><button id="cv-resetFilters" class="link-button" title="Reset all search controls">Reset</button></div>
+      <div class="sidebar-status"><span id="cv-apiStatus" class="connect"><b></b> Connecting</span></div>
+      <div class="filter-group">
+        <label>BROWSE SOURCE</label>
+        <div class="source-toggle"><button class="active" id="cv-siteCom" type="button">civitai.com <span>SAFE</span></button><button id="cv-siteRed" type="button">civitai.red <span>FULL</span></button></div>
+        <p class="tip">Browser login is separate. This app uses the public API, or your API key for your account permissions.</p>
+      </div>
+      <div class="filter-group">
+        <div class="filter-title"><span>CIVITAI API KEY</span><span class="tag" id="cv-keyState">NOT SET</span></div>
+        <form class="keyrow" id="cv-keyForm" autocomplete="off">
+          <input id="cv-apiKey" type="password" placeholder="Paste your API key" autocomplete="off" spellcheck="false" aria-label="Civitai API key">
+          <button id="cv-saveKey" type="submit" class="btn primary">Save</button>
+        </form>
+        <p class="tip" id="cv-keyMsg">Optional. Lets this app use your account's permissions (for example mature content on .red). Make one at <a href="https://civitai.com/user/account" target="_blank" rel="noopener noreferrer">civitai.com → Account settings → API Keys</a>. It is stored only on this computer (data/settings.json) and is never shown again or included in exports.</p>
+        <button id="cv-removeKey" type="button" class="link-button" hidden>Remove saved key</button>
+      </div>
+      <div class="filter-group">
+        <div class="filter-title"><span>GENERATION PROOF</span><span class="tag new">KEY FILTER</span></div>
+        <label class="radio-row"><input type="radio" name="cv-workflow" value="all" checked><span><b>All images</b><small>Any generation metadata</small></span></label>
+        <label class="radio-row"><input type="radio" name="cv-workflow" value="params"><span><b>Has generation data</b><small>Prompt, seed, sampler, or full graph</small></span></label>
+        <label class="radio-row"><input type="radio" name="cv-workflow" value="graph"><span><b>Real ComfyUI workflow</b><small>Downloadable node graph in metadata</small></span></label>
+      </div>
+      <div class="filter-group">
+        <div class="filter-title"><span>MODEL / FINE-TUNE</span><button id="cv-clearModel" class="link-button">Clear</button></div>
+        <button id="cv-findModel" class="find-model"><span class="find-icon">⌕</span><span id="cv-modelSummary">Find checkpoint or LoRA…</span><b>↗</b></button>
+        <label for="cv-resourceType" class="sub-label">Image must reference</label>
+        <select id="cv-resourceType"><option value="all">Any model type</option><option value="checkpoint">Checkpoint in metadata</option><option value="lora">LoRA / fine-tune in metadata</option><option value="mine">A LoRA from My LoRAs</option></select>
+        <p class="tip">Selecting a model searches its actual images. The type-only filter uses reported resource metadata.</p>
+      </div>
+      <div class="filter-group">
+        <div class="filter-title"><span>ADVANCED FILTERS</span></div>
+        <label for="cv-baseModel" class="sub-label">Base model family (exact API name)</label>
+        <input id="cv-baseModel" type="text" placeholder="e.g. SDXL 1.0, Flux.1 D" autocomplete="off">
+        <label for="cv-uploader" class="sub-label">Only this uploader</label>
+        <input id="cv-uploader" type="text" placeholder="Username" autocomplete="off">
+        <label for="cv-rating" class="sub-label">Content rating</label>
+        <select id="cv-rating"><option value="">All permitted content</option><option value="None">None (SFW)</option><option value="Soft">Soft</option><option value="Mature">Mature</option><option value="X">X</option></select>
+        <div class="two-col"><div><label class="sub-label" for="cv-orientation">Orientation</label><select id="cv-orientation"><option value="all">Any</option><option value="portrait">Portrait</option><option value="landscape">Landscape</option><option value="square">Square-ish</option></select></div><div><label class="sub-label" for="cv-minLikes">Minimum likes</label><input id="cv-minLikes" type="number" min="0" step="1" value="0"></div></div>
+        <label for="cv-tags" class="sub-label">Civitai image tag IDs</label><input id="cv-tags" type="text" placeholder="e.g. 42,87 (optional)" pattern="[0-9,]*">
+        <button id="cv-applyRemote" type="button" class="btn primary wide">Apply gallery filters <span>↗</span></button>
+      </div>
+      <div class="filter-group last">
+        <div class="filter-title"><span>YOUR PREFERENCES</span></div>
+        <label class="check-row"><input id="cv-onlySaved" type="checkbox"><span>Saved images only</span></label>
+        <button id="cv-manageBlocked" class="manage-btn"><span>◉</span><span>Blocked uploaders</span><strong id="cv-blockCount">0</strong><span>›</span></button>
+        <p class="tip">Blocked creators are hidden on both sites. Your list stays in this browser.</p>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="searchbox"><span class="search-icon">⌕</span><input id="cv-textQuery" autocomplete="off" placeholder="Search prompts and metadata in scanned images…" aria-label="Search locally scanned image metadata"><span class="search-shortcut">Ctrl K</span><button id="cv-clearText" aria-label="Clear search">×</button></div>
+      <div class="search-hint"><span>Search is limited to scanned results, not the entire Civitai database.</span><button id="cv-deepScan" type="button">Scan 5 more pages ↗</button></div>
+      <div class="gallery-controls" aria-label="Gallery sorting">
+        <div><label for="cv-sort">Sort by</label><select id="cv-sort"><option>Most Reactions</option><option>Most Collected</option><option>Newest</option><option>Oldest</option><option>Most Comments</option><option>Random</option></select></div>
+        <div><label for="cv-period">Time period</label><select id="cv-period"><option value="AllTime">All time</option><option value="Day">Day</option><option value="Week">Week</option><option value="Month">Month</option><option value="Year">Year</option></select></div>
+      </div>
+      <div class="results-head"><div><div class="results-heading">Explore images <span id="cv-siteLabel" class="tag">.COM</span></div><p id="cv-countLabel">Open this tab to load the gallery.</p></div><div class="results-actions"><span id="cv-scanLabel" class="scan-pill">0 scanned</span><button id="cv-reload" class="icon-btn" title="Reload gallery">↻</button></div></div>
+      <div id="cv-activeFilters" class="active-filters" hidden></div>
+      <div id="cv-notice" class="notice" hidden></div>
+      <div id="cv-gallery" class="gallery" aria-live="polite"></div>
+      <div id="cv-empty" class="empty" hidden><div class="empty-graphic">⌕</div><h3>No matching images in scanned pages</h3><p>Try fewer filters, or scan additional pages.</p></div>
+      <div class="gallery-footer"><button id="cv-loadMore" class="btn secondary" type="button">Load next page <span>↓</span></button><span id="cv-endLabel"></span></div>
+    </main>
+  </div>
+  <div id="cv-overlay" class="overlay" hidden></div>
+  <div id="cv-detailPanel" class="detail-panel" role="dialog" aria-modal="true" aria-labelledby="cv-detailTitle" hidden><div class="panel-head"><div><small>IMAGE INSPECTOR</small><h2 id="cv-detailTitle">Generation details</h2></div><button class="close-btn" id="cv-closeDetail" aria-label="Close">×</button></div><div id="cv-detailBody" class="detail-scroll"></div></div>
+  <div id="cv-modal" class="modal" role="dialog" aria-modal="true" hidden><div class="panel-head"><div><small id="cv-modalEyebrow">MODEL SEARCH</small><h2 id="cv-modalTitle">Find a model</h2></div><button class="close-btn" id="cv-closeModal" aria-label="Close">×</button></div><div id="cv-modalBody"></div></div>
+</section>
+
+<!-- ============================================================ Prompt -->
+<section class="tab" id="tab-prompt" hidden>
+  <div class="pe-wrap">
+    <div class="pe-drop" id="pe-drop">
+      <div><h2>Drop an AI image here</h2><p>PNG, JPG or WebP · or paste an image with Ctrl+V · reads A1111, ComfyUI, EXIF and XMP prompts</p></div>
+      <button class="ui-btn primary" id="pe-open" type="button">Open image</button>
+      <input type="file" id="pe-file" accept="image/png,image/jpeg,image/webp" hidden>
+    </div>
+    <div class="pe-main">
+      <div class="pe-pic" id="pe-pic"><div class="ph">No image yet</div></div>
+      <div>
+        <label class="cap" for="pe-prompt">Prompt</label>
+        <textarea id="pe-prompt" spellcheck="false" placeholder="The prompt appears here. You can edit it before copying."></textarea>
+        <div class="pe-actions">
+          <button class="ui-btn primary" id="pe-copy" type="button" disabled>Copy prompt</button>
+          <button class="ui-btn" id="pe-toGrid" type="button" disabled>Add to Grid</button>
+          <span class="pe-status" id="pe-status">Supports PNG text chunks, JPEG/WebP EXIF comments, XMP descriptions, and ComfyUI prompt JSON.</span>
+        </div>
+        <div id="pe-negWrap" hidden>
+          <label class="cap" for="pe-neg">Negative prompt</label>
+          <textarea id="pe-neg" class="neg" spellcheck="false"></textarea>
+          <div class="pe-actions"><button class="ui-btn small" id="pe-copyNeg" type="button">Copy negative</button></div>
+        </div>
+        <div id="pe-details" hidden>
+          <label class="cap">LoRAs used</label>
+          <div class="loras" id="pe-loras"></div>
+          <label class="cap">Generation settings</label>
+          <div class="kv" id="pe-kv"></div>
+          <details><summary>All metadata fields</summary><div id="pe-fields"></div></details>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ Grid -->
+<section class="tab" id="tab-grid" hidden>
+<main class="wrap">
+  <div class="intro"><div><h1>All your images. Side by side.</h1><p>Drop one or more batches of ComfyUI output images. Every batch is added to one continuous contact sheet, with each LoRA name shown under its image.</p></div><div class="info">Works best with original ComfyUI PNGs containing embedded workflow metadata</div></div>
+  <section class="drop" id="gr-dropzone" aria-label="Drop image files here">
+    <div class="uploadglyph">⇧</div>
+    <div><h2>Drop images or folders here</h2><p>PNG best supported · JPG/WebP read EXIF metadata when present · Add files in batches</p></div>
+    <div class="actions"><button class="btn primary" id="gr-addImages">+ Add images</button><button class="btn" id="gr-addFolder">Open folder</button><button class="btn light" id="gr-clearImages" disabled>Clear all</button></div>
+    <input id="gr-imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/avif" multiple>
+    <input id="gr-folderInput" type="file" webkitdirectory directory multiple>
+  </section>
+  <section class="controls" id="gr-controls">
+    <div class="field"><label for="gr-search">Search model, LoRA, prompt, filename</label><input id="gr-search" type="search" placeholder="e.g. portrait, characterA, XL ..."></div>
+    <div class="field"><label for="gr-groupMode">Sort sets by</label><select id="gr-groupMode"><option value="compare">Same settings · compare LoRAs</option><option value="bylora">By LoRA · any model or settings</option><option value="lora">Same model + LoRA set</option><option value="model">Base model</option><option value="none">Everything together</option></select></div>
+    <div class="field"><label for="gr-sort">Sort groups by</label><select id="gr-sort"><option value="count">Most images</option><option value="name">Group name</option><option value="newest">Newest file</option></select></div>
+    <div class="field"><label for="gr-viewMode">Gallery layout</label><select id="gr-viewMode"><option value="wall" selected>ALL IMAGES — single grid</option><option value="compact">Separate matching sets</option><option value="large">Larger group cards</option><option value="strength">LoRA STRENGTH grid</option></select></div>
+    <div class="field"><label for="gr-columns">Images per row <b id="gr-columnsCount">8</b></label><input id="gr-columns" type="range" min="2" max="12" step="1" value="8" style="accent-color:#8acaff" aria-label="Maximum images per row"></div>
+    <div class="viewactions"><label class="check"><input type="checkbox" id="gr-multiOnly"> Only 2+ matches</label><button class="btn tiny" id="gr-focusBtn" type="button" title="Hide the upload area and fill the screen (F)">Expand gallery ⛶</button></div>
+  </section>
+  <section class="pickbar" id="gr-pickbar" aria-label="Picks and finalists">
+    <div class="pickscope" id="gr-scope" role="tablist">
+      <button type="button" data-scope="all" class="on">All images <b id="gr-countAll">0</b></button>
+      <button type="button" data-scope="picks">♥ Picks <b id="gr-countPicks">0</b></button>
+      <button type="button" data-scope="finals">★ Finalists <b id="gr-countFinals">0</b></button>
+    </div>
+    <label class="check" title="When on, clicking an image picks it instead of opening it"><input type="checkbox" id="gr-clickPick"> Click an image to pick it</label>
+    <span class="pickhint" id="gr-pickHint">Click ♥ on any image to pick it. Your picks are shown together as one tight cube grid.</span>
+    <div class="pickactions" id="gr-pickActions" hidden>
+      <span class="cubecols">Columns <button class="btn tiny" type="button" id="gr-cubeLess" title="Fewer columns">−</button><button class="btn tiny" type="button" id="gr-cubeAuto">Auto</button><button class="btn tiny" type="button" id="gr-cubeMore" title="More columns">+</button></span>
+      <label class="check"><input type="checkbox" id="gr-cubeFit" checked> Fit on screen</label>
+      <button class="btn tiny" type="button" id="gr-cubeExport">↓ Export cube PNG</button>
+      <button class="btn tiny" type="button" id="gr-cubeNames">Copy file names</button>
+      <button class="btn tiny" type="button" id="gr-cubeBrowse" title="Pick the folder to copy the files into">📁 Browse…</button>
+      <input class="cubefolder" type="text" id="gr-cubeFolder" placeholder="Folder to copy the files into" autocomplete="off" aria-label="Folder to copy the files into">
+      <button class="btn tiny" type="button" id="gr-cubeCopy">Copy files</button>
+      <button class="btn tiny" type="button" id="gr-cubeClear">Clear</button>
+    </div>
+  </section>
+  <div class="gallery-banner" id="gr-galleryBanner"><div><strong>CONTACT SHEET</strong> <span>All loaded images appear together in rows, regardless of seed or prompt.</span></div><div class="gallery-pills"><span id="gr-layoutIndicator">GRID · 8 ACROSS</span><span>LoRA names are shown under each image</span></div></div>
+  <div class="strengthbar" id="gr-strengthBar"><div><strong>LoRA STRENGTH GRID</strong><span>Images with the same prompt, model, seed and settings where only the LoRA strength changes, sorted by strength. The grid sizes itself (9 images → 3×3, 81 → 9×9).</span></div><div class="opts"><label class="check"><input type="checkbox" id="gr-ignoreSeed"> Ignore seed</label><label class="check"><input type="checkbox" id="gr-includeOff" checked> Include no-LoRA image as "OFF"</label></div></div>
+  <div class="stats" id="gr-stats"><span><b>0</b> images loaded</span><span><b>0</b> groups</span><span><b>0</b> files with metadata</span></div>
+  <div class="notice" id="gr-notice"></div>
+  <div id="gr-results"><div class="empty"><div class="big">▧</div><h3>Your comparison gallery starts here</h3><p>Add multiple ComfyUI PNG files or entire folders. ALL images appear next to each other in a contact sheet.</p></div></div>
+  <div class="footer">Files are never modified or uploaded · "Export grid" saves comparison images with their labels</div>
+</main>
+<div class="modal" id="gr-modal" role="dialog" aria-modal="true" aria-label="Image metadata"><div class="modalbox"><div class="modalpic"><img id="gr-modalImg" alt="Selected image"><button class="navbtn prev" id="gr-navPrev" type="button" title="Previous image (← key or scroll up)" aria-label="Previous image">‹</button><button class="navbtn next" id="gr-navNext" type="button" title="Next image (→ key or scroll down)" aria-label="Next image">›</button><span class="navcount" id="gr-navCount"></span></div><div class="modalbody"><button class="btn tiny modalclose" id="gr-closeModal">Close ✕</button><h2 id="gr-modalTitle"></h2><dl id="gr-modalDetails"></dl><div class="prompt-row tier-row"><button class="btn tiny tierbtn" id="gr-pickBtn" type="button" title="Pick this image (P)">♥ Pick</button><button class="btn tiny tierbtn" id="gr-finalBtn" type="button" title="Make this image a finalist (S)">★ Finalist</button></div><div class="prompt-row"><button class="btn tiny" id="gr-copyPrompt" type="button">Copy prompt</button><button class="btn tiny" id="gr-openPrompt" type="button">Open in Prompt tab</button></div><details><summary class="linkish">Embedded raw metadata</summary><pre id="gr-raw"></pre></details></div></div></div>
+</section>
+
+<!-- ============================================================ Strip -->
+<section class="tab" id="tab-strip" hidden>
+  <div class="st-wrap">
+    <div class="st-drop" id="st-drop">
+      <div><h2>Drop images or folders to strip their metadata</h2><p>Removes prompts, ComfyUI workflows, EXIF, XMP, IPTC, comments, thumbnails and hidden trailing data. PNG, JPEG and WebP pixels are copied exactly, with no re-compression.</p></div>
+      <div class="st-buttons">
+        <button class="ui-btn primary" id="st-add" type="button">+ Add images</button>
+        <button class="ui-btn" id="st-addFolder" type="button">Add folder</button>
+      </div>
+      <input type="file" id="st-files" accept="image/*" multiple hidden>
+      <input type="file" id="st-folder" webkitdirectory directory multiple hidden>
+    </div>
+    <div class="st-out">
+      <label for="st-target">Save to folder</label>
+      <button class="ui-btn" id="st-browse" type="button" title="Pick the folder in a folder window">📁 Browse…</button>
+      <input class="ui-input" type="text" id="st-target" placeholder="or type a path (created if it does not exist)" autocomplete="off">
+      <select class="ui-select" id="st-names" title="Names for the saved files">
+        <option value="keep">Keep original names</option>
+        <option value="numbered">Rename: image_0001, image_0002…</option>
+        <option value="random">Rename: random names</option>
+      </select>
+      <label class="ui-check" title="Keep the ICC color profile (iCCP / sRGB / gamma). Off removes it too."><input type="checkbox" id="st-keepColor"> keep color profile</label>
+      <button class="ui-btn primary" id="st-save" type="button" disabled>Strip &amp; save</button>
+      <button class="ui-btn" id="st-clear" type="button" disabled>Clear list</button>
+    </div>
+    <div class="st-summary" id="st-summary">No images added yet.</div>
+    <div class="st-list" id="st-list"></div>
+
+    <section class="st-check" id="st-check" aria-label="Double-check images for metadata">
+      <div class="st-checkhead">
+        <div><h2>Double-check images</h2><p>Drop any images here — for example the files you just saved — to confirm they carry no metadata. Each file gets three independent checks: the metadata reader the Prompt tab uses, a walk through every block in the file, and a raw byte scan for prompts, workflows, EXIF and XMP. Nothing is changed.</p></div>
+        <div class="st-buttons">
+          <button class="ui-btn primary" id="st-checkAdd" type="button">Check images…</button>
+          <button class="ui-btn" id="st-checkFolder" type="button">Check folder…</button>
+          <button class="ui-btn" id="st-checkClear" type="button" disabled>Clear</button>
+        </div>
+        <input type="file" id="st-checkFiles" accept="image/*" multiple hidden>
+        <input type="file" id="st-checkDir" webkitdirectory directory multiple hidden>
+      </div>
+      <div class="st-summary" id="st-checkSummary">Saved files are also re-read from disk and checked automatically after “Strip &amp; save”.</div>
+      <div class="st-list" id="st-checkList"></div>
+    </section>
+  </div>
+</section>
+
+<!-- ============================================================ Workflow -->
+<section class="tab" id="tab-workflow" hidden>
+  <div class="wf-wrap">
+    <div class="st-drop wf-drop" id="wf-drop">
+      <div><h2>Drop images to find their workflows</h2><p>Shows which images carry a ComfyUI workflow and lets you preview the node graph. Works with PNG, JPEG and WebP from ComfyUI, Civitai and others, and with workflow .json files. Nothing is uploaded.</p></div>
+      <div class="st-buttons">
+        <button class="ui-btn primary" id="wf-add" type="button">+ Add images</button>
+        <button class="ui-btn" id="wf-addFolder" type="button">Add folder</button>
+        <button class="ui-btn" id="wf-clear" type="button" disabled>Clear</button>
+      </div>
+      <input type="file" id="wf-files" accept="image/png,image/jpeg,image/webp,image/avif,.json,application/json" multiple hidden>
+      <input type="file" id="wf-folder" webkitdirectory directory multiple hidden>
+    </div>
+    <div class="st-summary" id="wf-summary">No files yet. Drop images from ComfyUI, Civitai or anywhere else.</div>
+    <div class="wf-main">
+      <aside class="wf-side">
+        <input class="ui-input" type="search" id="wf-search" placeholder="Filter by name, model, LoRA, prompt…" autocomplete="off">
+        <label class="ui-check"><input type="checkbox" id="wf-onlyGraph"> Only files with a workflow</label>
+        <div class="wf-list" id="wf-list"></div>
+      </aside>
+      <div class="wf-pane">
+        <div class="empty-state" id="wf-empty"><p>No file selected</p><p>Drop images on this page, then pick one from the list to preview its workflow.</p></div>
+        <div class="wf-viewer" id="wf-viewer" hidden>
+          <div class="wf-head">
+            <div class="wf-title" id="wf-name"></div>
+            <div class="wf-actions">
+              <button class="ui-btn small primary" id="wf-dlWorkflow" type="button" title="Save the workflow as a .json file you can drop into ComfyUI">↓ Workflow .json</button>
+              <button class="ui-btn small" id="wf-copyWorkflow" type="button" title="Copy, then press Ctrl+V inside ComfyUI to paste the workflow">Copy workflow</button>
+              <button class="ui-btn small" id="wf-dlPrompt" type="button" title="The API-format prompt ComfyUI stores next to the workflow">↓ API prompt .json</button>
+              <button class="ui-btn small" id="wf-toPrompt" type="button">Open in Prompt tab</button>
+            </div>
+          </div>
+          <div class="wf-facts" id="wf-facts"></div>
+          <div class="wf-graphwrap" id="wf-graphWrap">
+            <div class="wf-tools">
+              <input class="ui-input" type="search" id="wf-nodeSearch" placeholder="Find a node or value…" autocomplete="off">
+              <span class="wf-count" id="wf-searchCount"></span>
+              <button class="ui-btn small" id="wf-zoomOut" type="button" title="Zoom out">−</button>
+              <span class="wf-zoom" id="wf-zoomLabel">100%</span>
+              <button class="ui-btn small" id="wf-zoomIn" type="button" title="Zoom in">+</button>
+              <button class="ui-btn small" id="wf-fit" type="button" title="Fit the whole graph (0)">Fit</button>
+              <button class="ui-btn small" id="wf-full" type="button">Full screen ⛶</button>
+            </div>
+            <p class="wf-note" id="wf-apiNote" hidden>This image only has the API prompt (no saved layout), so the nodes are laid out automatically from left to right.</p>
+            <svg class="wf-svg" id="wf-svg" role="img" aria-label="Workflow node graph"></svg>
+            <div class="wf-nodepanel" id="wf-node" hidden></div>
+            <p class="wf-hint">Drag to pan · scroll to zoom · click a node to see all of its values</p>
+          </div>
+          <div class="wf-nograph" id="wf-noGraph" hidden></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ LoRA Tester -->
+<section class="tab" id="tab-tester" hidden>
+  <div class="ts-wrap">
+    <div class="ts-bar">
+      <div class="ts-state"><span class="ts-dot" id="ts-dot"></span><div><b id="ts-title">LoRA Tester</b><span id="ts-detail">Checking…</span></div></div>
+      <div class="st-buttons">
+        <button class="ui-btn primary" id="ts-start" type="button" hidden>Start LoRA Tester</button>
+        <button class="ui-btn" id="ts-toGrid" type="button" hidden title="Load the images of a finished test into the Grid tab (strength grid)">Send results to Grid</button>
+        <select class="ui-select" id="ts-job" hidden title="Which test run to send to the Grid"></select>
+        <a class="ui-btn" id="ts-open" href="#" target="_blank" rel="noopener" hidden>Open in new window ↗</a>
+        <button class="ui-btn" id="ts-stop" type="button" hidden>Stop</button>
+      </div>
+    </div>
+    <div class="ts-intro" id="ts-intro">
+      <h2>Test LoRAs with ComfyUI</h2>
+      <p>LoRA Tester runs every LoRA you import through a strength matrix (8 strengths × 5 prompts) on a ComfyUI checkpoint or diffusion model, burns the LoRA name and strength into each image, and builds a contact sheet. Finished runs can be sent straight to the Grid tab's LoRA strength grid.</p>
+      <ul>
+        <li>Needs <b>Python 3.10+</b> (the first start creates a private environment and installs Flask and Pillow, about a minute).</li>
+        <li>Needs <b>ComfyUI</b> running on this computer (usually <code>http://127.0.0.1:8188</code>).</li>
+        <li>Runs locally only. Nothing is uploaded.</li>
+      </ul>
+      <pre class="ts-log" id="ts-log" hidden></pre>
+    </div>
+    <iframe class="ts-frame" id="ts-frame" title="LoRA Tester" hidden></iframe>
+  </div>
+</section>
+
+<div class="toast" id="toast"></div>
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>

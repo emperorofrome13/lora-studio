@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>LoRA Tester</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2305070a'/%3E%3Cpath d='M7 24V8h4v12h10v4H7z' fill='%2300e5ff'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/styles.css?v=104">
+  <link rel="stylesheet" href="/static/compare.css?v=104">
+</head>
+<body data-theme="neon">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"><span></span></div>
+      <div class="brand-copy">
+        <h1>LORA TESTER</h1>
+        <p>Civitai ZIP or LoRA → strength matrix</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <div id="comfyPill" class="status-pill is-waiting" role="status" aria-live="polite">
+        <span class="dot" aria-hidden="true"></span>
+        <span id="comfyPillText">Checking ComfyUI…</span>
+      </div>
+      <label class="theme-pick">
+        <span>Theme</span>
+        <select id="themeSelect" aria-label="Color theme">
+          <option value="neon">Neon</option>
+          <option value="amber">Amber</option>
+          <option value="mono">Mono</option>
+        </select>
+      </label>
+      <span id="versionBadge" class="version-badge">v1.04</span>
+    </div>
+  </header>
+
+  <main id="main" class="layout">
+    <div class="content">
+      <div id="notice" class="notice" hidden>
+        <div class="notice-copy"><strong id="noticeTitle">Notice</strong><span id="noticeText"></span></div>
+        <button id="noticeClose" class="icon-btn" type="button" aria-label="Dismiss message">×</button>
+      </div>
+
+      <section class="step" aria-labelledby="step1Title">
+        <div class="step-head">
+          <span class="step-index">01</span>
+          <div class="step-copy">
+            <h2 id="step1Title">ComfyUI &amp; models</h2>
+            <p>Connect to the ComfyUI installation that owns your models, then pick what to test on.</p>
+          </div>
+          <button id="reconnectBtn" class="btn small" type="button">Reconnect</button>
+        </div>
+
+        <div class="grid two">
+          <div class="field">
+            <label for="comfyUrl">ComfyUI address</label>
+            <div class="input-row">
+              <input id="comfyUrl" type="url" placeholder="http://127.0.0.1:8188" spellcheck="false" autocomplete="off">
+              <button id="saveUrlBtn" class="btn ghost" type="button">Save</button>
+            </div>
+            <p class="hint">The app also tries ports 8188 and 8189 automatically.</p>
+          </div>
+
+          <div class="field">
+            <label for="checkpointSelect">Checkpoint or diffusion model</label>
+            <div class="input-row">
+              <select id="checkpointSelect" aria-describedby="checkpointHint modelNotice archHint">
+                <option value="">Loading models…</option>
+              </select>
+              <button id="refreshCheckpointsBtn" class="btn ghost" type="button">Refresh</button>
+            </div>
+            <p id="checkpointHint" class="hint">Pick the model you want to test the LoRA on.</p>
+            <p id="modelNotice" class="hint is-warn" role="status" hidden></p>
+            <div id="modelTools" class="model-tools" hidden>
+              <label class="check-line compact">
+                <input id="showUnsupportedInput" type="checkbox">
+                <span id="unsupportedToggleText">Show unsupported models</span>
+              </label>
+              <details id="unsupportedDetails" class="model-help" hidden>
+                <summary id="unsupportedSummary">Why are some models unavailable?</summary>
+                <div id="unsupportedList" class="model-help-body"></div>
+              </details>
+            </div>
+            <p id="archHint" class="hint arch-hint" hidden></p>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="lorasDir">ComfyUI LoRA folder</label>
+          <div class="input-row wrap">
+            <input id="lorasDir" type="text" placeholder="…\ComfyUI\models\loras" spellcheck="false" autocomplete="off">
+            <button id="browseLorasBtn" class="btn ghost" type="button">Browse…</button>
+            <button id="autoDetectBtn" class="btn ghost" type="button">Auto-detect</button>
+            <button id="saveLorasBtn" class="btn ghost" type="button">Save</button>
+          </div>
+          <p id="lorasDirHint" class="hint">Test LoRAs are copied here so ComfyUI can load them.</p>
+        </div>
+      </section>
+
+      <section class="step" aria-labelledby="step2Title">
+        <div class="step-head">
+          <span class="step-index">02</span>
+          <div class="step-copy">
+            <h2 id="step2Title">Import Civitai ZIPs or single LoRAs</h2>
+            <p>Every LoRA is listed separately. Tick one, several, or use “Test only this”.</p>
+          </div>
+          <div class="head-tools">
+            <button id="selectAllBtn" class="btn small" type="button">Select all</button>
+            <button id="clearAllBtn" class="btn small ghost" type="button">Clear</button>
+          </div>
+        </div>
+
+        <div id="dropzone" class="dropzone">
+          <input id="zipInput" type="file" accept=".zip,.safetensors,.pt,.pth,.ckpt,.bin,application/zip" multiple hidden>
+          <div class="drop-glyph" aria-hidden="true"><span></span></div>
+          <p class="drop-title">Drop Civitai ZIPs or individual LoRA files here</p>
+          <p class="hint">or</p>
+          <button id="chooseZipBtn" class="btn primary-soft" type="button">Choose ZIP or LoRA files</button>
+          <p class="hint">Files are processed locally. Nothing is sent to the internet.</p>
+          <div id="importProgress" class="upload-progress" hidden>
+            <div class="bar" role="progressbar" aria-label="File upload progress" aria-valuemin="0" aria-valuemax="100">
+              <span id="importBar"></span>
+            </div>
+            <p id="importStatus">Uploading…</p>
+          </div>
+        </div>
+
+        <div id="importNotice" class="notice inline" hidden>
+          <div class="notice-copy"><strong>Import problem</strong><span id="importNoticeText"></span></div>
+        </div>
+
+        <div id="importList" class="import-list">
+          <div class="empty">No ZIP or LoRA file imported yet. Drop a Civitai ZIP or a single .safetensors LoRA above.</div>
+        </div>
+      </section>
+
+      <section class="step" aria-labelledby="step3Title">
+        <div class="step-head">
+          <span class="step-index">03</span>
+          <div class="step-copy">
+            <h2 id="step3Title">Prompts, negative &amp; strengths</h2>
+            <p>Five UGC influencer prompts. Uncheck any you do not want in this run.</p>
+          </div>
+          <button id="resetPromptsBtn" class="btn small ghost" type="button">Reset prompts</button>
+        </div>
+
+        <div id="promptList" class="prompt-list"></div>
+
+        <div class="grid two prompt-foot">
+          <div class="field">
+            <label for="negativePrompt">Negative prompt <span id="negativeCount" class="count"></span></label>
+            <textarea id="negativePrompt" rows="6" spellcheck="false" placeholder="What should not appear in the images"></textarea>
+            <p class="hint">Applied to every image at every strength. Negative guidance needs CFG above 1; the Flux2 and Z-Image Turbo presets use CFG 1.</p>
+          </div>
+
+          <div class="field">
+            <span class="label">Strengths</span>
+            <div id="strengthList" class="chips" role="group" aria-label="LoRA strengths"></div>
+            <p class="hint">Positive and negative strengths. Negative values reduce the LoRA's effect — useful to see if a trained LoRA oversaturates or overstyles. Same seed for every strength.</p>
+
+            <details class="advanced">
+              <summary>Advanced generation settings</summary>
+              <div class="grid two advanced-grid">
+                <div class="field">
+                  <label for="resolutionPreset">Resolution preset</label>
+                  <select id="resolutionPreset"></select>
+                </div>
+                <div class="field">
+                  <label for="seedInput">Seed</label>
+                  <div class="input-row">
+                    <input id="seedInput" type="number" min="-1" max="4294967295" step="1" value="123456789">
+                    <button id="randomSeedBtn" class="btn ghost" type="button">Random</button>
+                  </div>
+                  <p class="hint">−1 makes one random seed per prompt, shared across strengths.</p>
+                </div>
+                <div class="field">
+                  <label for="widthInput">Width</label>
+                  <input id="widthInput" type="number" min="64" max="4096" step="8" value="832">
+                </div>
+                <div class="field">
+                  <label for="heightInput">Height</label>
+                  <input id="heightInput" type="number" min="64" max="4096" step="8" value="1216">
+                </div>
+                <div class="field">
+                  <label for="stepsInput">Steps</label>
+                  <input id="stepsInput" type="number" min="1" max="150" step="1" value="30">
+                </div>
+                <div class="field">
+                  <label for="cfgInput">CFG scale</label>
+                  <input id="cfgInput" type="number" min="0" max="30" step="0.1" value="7">
+                </div>
+                <div class="field">
+                  <label for="samplerSelect">Sampler</label>
+                  <select id="samplerSelect"></select>
+                </div>
+                <div class="field">
+                  <label for="schedulerSelect">Scheduler</label>
+                  <select id="schedulerSelect"></select>
+                </div>
+              </div>
+              <label class="check-line">
+                <input id="cleanupInput" type="checkbox">
+                <span>Remove imported test LoRAs from ComfyUI's folder after the run</span>
+              </label>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section class="step" aria-labelledby="step4Title">
+        <div class="step-head">
+          <span class="step-index">04</span>
+          <div class="step-copy">
+            <h2 id="step4Title">Results</h2>
+            <p id="resultsSub">Start a test to see images here.</p>
+          </div>
+          <div class="head-tools">
+            <button id="downloadAllBtn" class="btn small" type="button" hidden>Download ZIP</button>
+          </div>
+        </div>
+
+        <div id="jobPanel" class="job-panel" hidden>
+          <div class="job-top">
+            <div>
+              <div class="eyebrow">CURRENT TEST</div>
+              <strong id="jobStatus" class="job-status">Queued</strong>
+            </div>
+            <div class="job-actions">
+              <button id="cancelJobBtn" class="btn small danger" type="button" hidden>Cancel test</button>
+              <button id="removeTestedBtn" class="btn small danger" type="button" title="Delete the LoRA files you just tested from the list; history and images are kept">Remove tested LoRAs</button>
+              <button id="openJobOutputBtn" class="btn small ghost" type="button">Open output folder</button>
+            </div>
+          </div>
+          <div class="bar job-bar" role="progressbar" aria-label="Test progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <span id="jobBar"></span>
+          </div>
+          <div class="job-stats">
+            <div><span>Images</span><strong id="jobDone">0 / 0</strong></div>
+            <div><span>Failed</span><strong id="jobFailed">0</strong></div>
+            <div><span>Elapsed</span><strong id="jobElapsed">—</strong></div>
+            <div><span>Remaining</span><strong id="jobEta">—</strong></div>
+          </div>
+          <p id="jobCurrent" class="job-current">Preparing…</p>
+          <div id="jobError" class="job-error" hidden>
+            <strong id="jobErrorTitle">Test stopped</strong>
+            <p id="jobErrorText"></p>
+            <details id="jobErrorDetailsWrap" hidden>
+              <summary>Technical detail</summary>
+              <pre id="jobErrorDetails"></pre>
+            </details>
+          </div>
+          <div id="imageErrors" class="image-errors" hidden></div>
+          <details class="activity">
+            <summary>Activity log</summary>
+            <pre id="jobLog"></pre>
+          </details>
+        </div>
+
+        <div id="gallery" class="gallery">
+          <div class="empty">No test has run yet. The full matrix creates 30 images per LoRA.</div>
+        </div>
+      </section>
+    </div>
+
+    <aside class="rail" aria-label="Run summary and history">
+      <div class="rail-block summary-block">
+        <div class="eyebrow">RUN SUMMARY</div>
+        <div class="summary-line"><span>Model</span><strong id="sumCheckpoint">—</strong></div>
+        <div class="summary-line"><span>LoRAs</span><strong id="sumLoras">0</strong></div>
+        <div class="summary-line"><span>Prompts</span><strong id="sumPrompts">0</strong></div>
+        <div class="summary-line"><span>Strengths</span><strong id="sumStrengths">0</strong></div>
+        <div class="big-count"><strong id="sumImages">0</strong><span>images</span></div>
+        <button id="startBtn" class="btn primary wide" type="button" disabled>Start LoRA test</button>
+        <button id="cancelBtn" class="btn danger wide" type="button" hidden>Cancel running test</button>
+        <p id="startHint" class="hint">Import a ZIP or LoRA file, then pick a model.</p>
+      </div>
+
+      <div class="rail-block">
+        <div class="eyebrow">HISTORY</div>
+        <div id="historyList" class="history-list">
+          <div class="empty small">No tests yet.</div>
+        </div>
+      </div>
+
+      <div class="rail-block">
+        <div class="eyebrow">OUTPUT</div>
+        <button id="openOutputBtn" class="btn ghost wide" type="button">Open output folder</button>
+        <p class="hint">Every image also stores its prompt, negative, seed and settings.</p>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="footer">
+    <span>LORA TESTER <strong id="footerVersion">v1.04</strong></span>
+    <span>Local only · ComfyUI required · Images are annotated with the LoRA name</span>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="/static/compare.js?v=104" defer></script>
+  <script src="/static/app.js?v=104" defer></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# your own settings, caches and logs
+data/
+logs/
+.server.json
+node_modules/
+# LoRA Tester runtime files
+tester/.venv/
+tester/data/
+tester/output/
+tester/logs/
+__pycache__/
+*.pyc
