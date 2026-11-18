@@ -24,7 +24,7 @@ from flask import Flask, jsonify, request, send_file, send_from_directory
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
 from . import __version__
-from .checkpoint_meta import inspect_checkpoint
+from .checkpoint_meta import SUPPORTED_TEXT, gpu_prefers_fp4, inspect_checkpoint
 from .comfy import ComfyClient, ComfyError, discover_comfy_url
 from .config import (
     APP_VERSION,
@@ -37,7 +37,7 @@ from .config import (
     ensure_dirs,
     public_defaults,
 )
-from .detect import detect_loras_dir, invalidate_detection
+from .detect import detect_loras_dir, invalidate_detection, loras_match
 from .jobs import JobManager
 from .lora_zip import (
     IMPORT_DIR,
@@ -110,8 +110,11 @@ def _shared_status(config: ConfigStore, refresh: bool = False) -> dict:
     unet_files: list[str] = []
     gguf_files: list[str] = []
     lora_count = 0
+    comfy_loras: list[str] = []
+    gpu_name = ""
     message = ""
     detail = ""
+    loras_note = ""
     if online:
         client = ComfyClient(url)
         try:
@@ -123,9 +126,11 @@ def _shared_status(config: ConfigStore, refresh: bool = False) -> dict:
             unet_files = client.unet_models()
             gguf_files = client.gguf_models()
             try:
-                lora_count = len(client.loras())
+                comfy_loras = client.loras()
+                lora_count = len(comfy_loras)
             except ComfyError:
                 lora_count = 0
+            gpu_name = client.gpu_name()
             if not checkpoints and not unet_files and not gguf_files:
                 message = (
                     "ComfyUI is online but reports no models. Put a checkpoint in "
@@ -147,7 +152,24 @@ def _shared_status(config: ConfigStore, refresh: bool = False) -> dict:
         if detected:
             loras_dir = detected
             config.set("loras_dir", detected)
+    elif online and comfy_loras and not loras_match(loras_dir, comfy_loras):
+        # The saved folder exists but belongs to another ComfyUI install (test LoRAs copied
+        # there would be invisible to the running one). Find the running ComfyUI's folder.
+        detected = detect_loras_dir("", force=True, expect=comfy_loras)
+        if detected and Path(detected).resolve() != Path(loras_dir).resolve():
+            loras_note = (
+                f"The LoRA folder was switched to {detected}: the saved folder ({loras_dir}) "
+                "belongs to a different ComfyUI than the one running."
+            )
+            loras_dir = detected
+            config.set("loras_dir", detected)
+        else:
+            loras_note = (
+                f"The LoRA folder {loras_dir} does not hold the LoRAs the running ComfyUI lists. "
+                "Choose that ComfyUI's models\\loras folder."
+            )
     loras_valid = bool(loras_dir and Path(loras_dir).is_dir())
+    prefer_fp4 = gpu_prefers_fp4(gpu_name)
 
     model_options: list[dict] = []
     for name in checkpoints:
@@ -184,6 +206,7 @@ def _shared_status(config: ConfigStore, refresh: bool = False) -> dict:
                 samplers=samplers,
                 schedulers=schedulers,
                 loader=option["loader"],
+                prefer_fp4=prefer_fp4,
             )
             plan["id"] = option["id"]
             plan["name"] = option["name"]
@@ -212,9 +235,11 @@ def _shared_status(config: ConfigStore, refresh: bool = False) -> dict:
             "vae_files": vae_files,
             "checkpoint_info": checkpoint_info,
             "lora_count": lora_count,
+            "gpu": gpu_name,
         },
         "loras_dir": loras_dir,
         "loras_dir_valid": loras_valid,
+        "loras_dir_note": loras_note,
         "output_dir": str(OUTPUT_DIR),
         "imports": imports,
         "defaults": public_defaults(),
@@ -647,7 +672,7 @@ def create_app() -> Flask:
         if option.get("supported") is False:
             return _json_error(
                 option.get("unsupported_reason")
-                or "That diffusion model is not a supported Flux2, Z-Image or Krea2 model."
+                or f"That diffusion model is not a supported {SUPPORTED_TEXT} model."
             )
         checkpoint = option["name"]
         model_loader = option["loader"]
@@ -663,16 +688,17 @@ def create_app() -> Flask:
                 samplers=comfy.get("samplers") or [],
                 schedulers=comfy.get("schedulers") or [],
                 loader=model_loader,
+                prefer_fp4=gpu_prefers_fp4(comfy.get("gpu") or ""),
             )
         if pipeline.get("supported") is False:
             return _json_error(
                 pipeline.get("unsupported_reason")
-                or "That model is not supported. Pick a Flux2, Z-Image or Krea2 model, "
+                or f"That model is not supported. Pick a {SUPPORTED_TEXT} model, "
                 "or a full SD/SDXL checkpoint."
             )
         if model_loader != "checkpoint" and pipeline.get("architecture") == "standard":
             return _json_error(
-                "That diffusion model does not have a detected Flux2, Z-Image or Krea2 "
+                f"That diffusion model does not have a detected {SUPPORTED_TEXT} "
                 "pipeline. Pick one of those diffusion models, or use a full SD/SDXL checkpoint."
             )
         if pipeline.get("architecture") != "standard":
@@ -779,11 +805,13 @@ def create_app() -> Flask:
             height = _parse_int(body.get("height", pipeline.get("height", 1216)), "Height", 64, 4096)
             if width % 8 or height % 8:
                 raise ValueError("Width and height must be multiples of 8.")
-            if pipeline.get("latent") == "sd3" and (width % 16 or height % 16):
+            if pipeline.get("latent") in ("sd3", "flux2") and (width % 16 or height % 16):
                 raise ValueError(
-                    "Width and height must be multiples of 16 for Flux2 and Z-Image, "
-                    "because they use the SD3 latent format."
+                    "Width and height must be multiples of 16 for Flux2, Z-Image and MOSS-Image, "
+                    "because of their latent format."
                 )
+            if pipeline.get("latent") == "h3image" and (width % 32 or height % 32):
+                raise ValueError("Width and height must be multiples of 32 for MiniMax H3 Image.")
             steps = _parse_int(body.get("steps", pipeline.get("steps", 30)), "Steps", 1, 150)
             cfg_scale = _parse_float(body.get("cfg", pipeline.get("cfg", 7.0)), "CFG scale", 0.0, 30.0)
             seed = _parse_int(body.get("seed", 123456789), "Seed", -1, 4294967295)

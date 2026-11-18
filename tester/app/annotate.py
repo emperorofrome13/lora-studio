@@ -86,6 +86,17 @@ def _wrap(
     return lines
 
 
+def _line_height(draw: ImageDraw.ImageDraw, font: ImageFont.FreeTypeFont) -> int:
+    """Full height of one text line (ascent + descent). Measuring a glyph box alone misses the space
+    above the glyphs, which grows with the font size and made big labels overlap the next line."""
+    try:
+        ascent, descent = font.getmetrics()
+        return int(ascent + descent)
+    except AttributeError:  # Pillow's old bitmap default font
+        box = draw.textbbox((0, 0), "Ag", font=font)
+        return box[3]
+
+
 def _fit_font(
     draw: ImageDraw.ImageDraw,
     text: str,
@@ -129,7 +140,8 @@ def annotate_image(
     draw = ImageDraw.Draw(image)
     pad = max(14, int(width * 0.020))
     name_start = max(22, int(width * 0.036))
-    meta_size = max(14, min(22, int(width * 0.021)))
+    # Scales with the image (was capped at 22 px, unreadably small on 4 MP+ images).
+    meta_size = max(14, min(64, int(width * 0.021)))
     meta_font = _font(meta_size)
     small_font = _font(max(12, int(meta_size * 0.82)))
 
@@ -144,11 +156,11 @@ def annotate_image(
         name_lines = _wrap(draw, lora_name, name_font, name_width, 2)
 
     line_gap = max(4, int(meta_size * 0.25))
-    name_line_height = _measure(draw, "Ag", name_font)[1] + line_gap
-    meta_line_height = _measure(draw, "Ag", meta_font)[1] + line_gap
+    name_line_height = _line_height(draw, name_font) + line_gap
+    meta_line_height = _line_height(draw, meta_font) + line_gap
     trigger_line = f"TRIGGER · {trigger}" if trigger.strip() else ""
     name_block_height = name_line_height * len(name_lines)
-    trigger_height = small_font.size + line_gap if trigger_line else 0
+    trigger_height = _line_height(draw, small_font) + line_gap if trigger_line else 0
     bar_height = pad + name_block_height + meta_line_height * 2 + trigger_height + pad
 
     overlay = Image.new("RGBA", (width, bar_height), BAR)

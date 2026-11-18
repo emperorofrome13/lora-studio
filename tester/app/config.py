@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .prompts import DEFAULT_NEGATIVE, DEFAULT_PROMPTS, RESOLUTION_PRESETS, STRENGTHS
 
-APP_VERSION = "1.04"
+APP_VERSION = "1.05"
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"

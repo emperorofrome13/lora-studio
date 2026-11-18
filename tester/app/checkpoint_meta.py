@@ -8,11 +8,16 @@ a ready-to-use pipeline plan.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path, PurePosixPath
 
 from .lora_zip import read_safetensors_header
 
 _ARCH_CACHE: dict[str, str] = {}
+
+# Diffusion-model families this app can wire automatically.
+SUPPORTED_DIFFUSION = ("flux2", "zimage", "krea2", "moss", "h3image")
+SUPPORTED_TEXT = "Flux2, Z-Image, Krea2, MOSS-Image or MiniMax H3 Image"
 
 
 def _checkpoint_path(name: str, loras_dir: str, loader: str = "checkpoint") -> Path | None:
@@ -33,7 +38,18 @@ def _checkpoint_path(name: str, loras_dir: str, loader: str = "checkpoint") -> P
     return None
 
 
+def _has_key(keys: set[str], suffix: str) -> bool:
+    """True when a tensor is named `suffix`, with or without a prefix such as `model.`."""
+    return suffix in keys or any(key.endswith("." + suffix) for key in keys)
+
+
 def _architecture_from_keys(keys: set[str]) -> str:
+    # Same signatures ComfyUI's own model_detection.py uses (ComfyUI 0.45).
+    if _has_key(keys, "shared_block_modulation.weight") and _has_key(keys, "layers.0.proj.ffn_up_gate.weight"):
+        return "moss"
+    if _has_key(keys, "video_patch_proj.weight") and _has_key(keys, "condition_proj.weight"):
+        # MiniMax H3: the image checkpoints have no audio stream; the video ones do.
+        return "h3video" if _has_key(keys, "audio_patch_proj.weight") else "h3image"
     if any(key.startswith("double_blocks") or key.startswith("single_blocks") for key in keys):
         return "flux2"
     if any("cap_embedder" in key or "context_refiner" in key for key in keys):
@@ -45,6 +61,12 @@ def _architecture_from_keys(keys: set[str]) -> str:
 
 def _architecture_from_name(name: str) -> str:
     lowered = name.lower()
+    if "moss" in lowered:
+        return "moss"
+    if any(token in lowered for token in ("h3_image", "h3-image", "h3image")):
+        return "h3image"
+    if "h3" in lowered and any(token in lowered for token in ("minimax", "fl2va", "ref2va", "i2v", "t2v", "video")):
+        return "h3video"
     if any(token in lowered for token in ("flux1", "flux-1", "flux.1")):
         return "flux1"
     if "flux" in lowered:
@@ -81,6 +103,16 @@ def detect_architecture(name: str, loras_dir: str, loader: str = "checkpoint") -
     return _architecture_from_name(name)
 
 
+def gpu_prefers_fp4(gpu_name: str) -> bool:
+    """NVFP4 runs natively on NVIDIA Blackwell: GeForce RTX 50xx, RTX PRO 6000 Blackwell, B100/B200/GB200."""
+    name = (gpu_name or "").lower()
+    return bool(
+        re.search(r"rtx\s*50\d\d", name)
+        or "blackwell" in name
+        or re.search(r"\b(gb|b)(100|200|300)\b", name)
+    )
+
+
 def _pick(available: list[str], preferred: list[str], token: str = "") -> tuple[str, bool]:
     lowered = {item.lower(): item for item in available}
     for candidate in preferred:
@@ -104,7 +136,9 @@ def inspect_checkpoint(
     samplers: list[str] | None = None,
     schedulers: list[str] | None = None,
     loader: str = "checkpoint",
+    prefer_fp4: bool = False,
 ) -> dict:
+    """prefer_fp4: the GPU runs NVFP4 natively (RTX 50 / Blackwell), so NVFP4 text encoders are preferred."""
     clip_files = clip_files or []
     vae_files = vae_files or []
     samplers = samplers or []
@@ -227,6 +261,73 @@ def inspect_checkpoint(
             }
         )
 
+    elif architecture == "moss":
+        # Official ComfyUI template image_moss_image_t2i: Qwen3.5-9B (type moss_image),
+        # FLUX.2 small VAE, EmptyFlux2LatentImage, 25 steps / CFG 2.5 / er_sde / simple.
+        clip_name, clip_ok = _pick(
+            clip_files,
+            ["qwen3.5_9b_w4a8_gptq.safetensors", "qwen3.5_9b_bf16.safetensors", "qwen3.5_9b_fp8_scaled.safetensors"],
+            "qwen3.5_9b",
+        )
+        vae_name, vae_ok = _pick(
+            vae_files, ["flux2-vae_small.safetensors", "moss_image_vae_bf16.safetensors"], "moss_image_vae"
+        )
+        if not clip_ok:
+            warnings.append(f"The MOSS-Image text encoder “{clip_name}” was not found in ComfyUI's CLIP list.")
+        if not vae_ok:
+            warnings.append(f"The MOSS-Image VAE “{vae_name}” was not found in ComfyUI's VAE list.")
+        plan.update(
+            {
+                "label": "MOSS-Image" + (" Base" if "base" in name.lower() else ""),
+                "clip_name": clip_name,
+                "clip_type": "moss_image",
+                "vae_name": vae_name,
+                "clip_skip": None,
+                "latent": "flux2",
+                "lora_mode": "model",
+                "steps": 25,
+                "cfg": 2.5,
+                "sampler": "er_sde",
+                "scheduler": "simple",
+                "width": 1024,
+                "height": 1536,
+                "preset": "moss_portrait",
+            }
+        )
+    elif architecture == "h3image":
+        # Official ComfyUI template image_minimax_h3_image_t2i: Qwen3-VL-32B (type minimax),
+        # MiniMaxH3ImageConditioning makes the conditioning + latent, negative = ConditioningZeroOut,
+        # 6 steps / CFG 1 / euler / simple. Tuned for ~4 MP and up; sizes in multiples of 32.
+        encoders = ["qwen3vl_32b_minimax_h3_int8_convrot.safetensors", "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"]
+        if prefer_fp4:
+            encoders.reverse()
+        clip_name, clip_ok = _pick(clip_files, encoders, "minimax_h3")
+        vae_name, vae_ok = _pick(vae_files, ["minimax_h3_image_vae_fp16.safetensors"], "minimax_h3_image_vae")
+        if not clip_ok:
+            warnings.append(f"The MiniMax H3 Image text encoder “{clip_name}” was not found in ComfyUI's CLIP list.")
+        if not vae_ok:
+            warnings.append(f"The MiniMax H3 Image VAE “{vae_name}” was not found in ComfyUI's VAE list.")
+        plan.update(
+            {
+                "label": "MiniMax H3 Image",
+                "clip_name": clip_name,
+                "clip_type": "minimax",
+                "vae_name": vae_name,
+                "clip_skip": None,
+                "latent": "h3image",
+                "lora_mode": "model",
+                "steps": 6,
+                "cfg": 1.0,
+                "sampler": "euler",
+                "scheduler": "simple",
+                "width": 1792,
+                "height": 2304,
+                "preset": "h3image_portrait",
+            }
+        )
+    elif architecture == "h3video":
+        plan["label"] = "MiniMax H3 video"
+
     if samplers and plan["sampler"] not in samplers:
         replacement = "euler" if "euler" in samplers else samplers[0]
         warnings.append(
@@ -239,28 +340,36 @@ def inspect_checkpoint(
             f"Scheduler “{plan['scheduler']}” is not available; “{replacement}” will be used."
         )
         plan["scheduler"] = replacement
-    if loader in ("unet", "gguf") and architecture not in ("flux2", "zimage", "krea2"):
+    if architecture == "h3video":
+        plan["supported"] = False
+        plan["unsupported_reason"] = (
+            "This is a MiniMax H3 video (audio + video) model. LoRA Tester makes still images: "
+            "pick MiniMax H3 Image (minimax_h3_image_…) instead."
+        )
+        plan["unsupported_label"] = "MiniMax H3 video model"
+        warnings.append(plan["unsupported_reason"])
+    elif loader in ("unet", "gguf") and architecture not in SUPPORTED_DIFFUSION:
         plan["supported"] = False
         if architecture == "flux1":
             reason = (
                 "This is a Flux1 model. Flux1 shares tensor names with Flux2 but uses a "
-                "different text encoder/pipeline; this app supports Flux2, Z-Image and Krea2 "
+                f"different text encoder/pipeline; this app supports {SUPPORTED_TEXT} "
                 "diffusion models."
             )
         else:
             reason = (
-                "This diffusion model was not detected as Flux2, Z-Image or Krea2. "
+                f"This diffusion model was not detected as {SUPPORTED_TEXT}. "
                 "This app auto-wires those diffusion-model families; use a full checkpoint "
                 "for a standard SD/SDXL model."
             )
         plan["unsupported_reason"] = reason
         plan["unsupported_label"] = "Flux1 model" if architecture == "flux1" else "Unsupported diffusion model"
         warnings.append(reason)
-    elif architecture not in ("flux2", "zimage", "krea2", "standard"):
+    elif architecture not in SUPPORTED_DIFFUSION + ("standard",):
         plan["supported"] = False
         plan["unsupported_reason"] = (
-            f"{plan['label']} models are not supported by this app. Use a Flux2, Z-Image, "
-            "Krea2 or standard SD/SDXL model."
+            f"{plan['label']} models are not supported by this app. Use a {SUPPORTED_TEXT} "
+            "or standard SD/SDXL model."
         )
         plan["unsupported_label"] = f"{plan['label']} model"
         warnings.append(plan["unsupported_reason"])

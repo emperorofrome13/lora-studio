@@ -145,6 +145,15 @@ class ComfyClient:
         except ComfyError:
             return []
 
+    def gpu_name(self) -> str:
+        """Name of ComfyUI's first GPU, e.g. "cuda:0 NVIDIA GeForce RTX 5070 Ti : cudaMallocAsync"."""
+        try:
+            stats = self._json("/system_stats")
+            devices = stats.get("devices") or [] if isinstance(stats, dict) else []
+            return str(devices[0].get("name") or "") if devices else ""
+        except (ComfyError, AttributeError, IndexError, TypeError):
+            return ""
+
     def submit(self, workflow: dict) -> str:
         client_id = uuid.uuid4().hex
         data = self._json("/prompt", {"prompt": workflow, "client_id": client_id}, timeout=60)
@@ -426,10 +435,89 @@ def build_workflow_for_architecture(
             "11": {"class_type": "SaveImage", "inputs": {"images": ["10", 0], "filename_prefix": filename_prefix}},
         }
 
+    if architecture == "moss":
+        # As ComfyUI's image_moss_image_t2i template, without its optional prompt enhancer,
+        # so every LoRA and strength gets exactly the same prompt.
+        return {
+            "1": loader_node,
+            "2": {
+                "class_type": "LoraLoaderModelOnly",
+                "inputs": {"model": ["1", 0], "lora_name": lora_name, "strength_model": float(strength)},
+            },
+            "3": {
+                "class_type": "CLIPLoader",
+                "inputs": {"clip_name": clip_name, "type": clip_type or "moss_image", "device": "default"},
+            },
+            "5": {"class_type": "CLIPTextEncode", "inputs": {"text": positive, "clip": ["3", 0]}},
+            "6": {"class_type": "CLIPTextEncode", "inputs": {"text": negative, "clip": ["3", 0]}},
+            "7": {
+                "class_type": "EmptyFlux2LatentImage",
+                "inputs": {"width": int(width), "height": int(height), "batch_size": 1},
+            },
+            "8": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "model": ["2", 0],
+                    "positive": ["5", 0],
+                    "negative": ["6", 0],
+                    "latent_image": ["7", 0],
+                    "seed": int(seed),
+                    "steps": int(steps),
+                    "cfg": float(cfg),
+                    "sampler_name": sampler,
+                    "scheduler": scheduler,
+                    "denoise": 1.0,
+                },
+            },
+            "9": {"class_type": "VAELoader", "inputs": {"vae_name": vae_name}},
+            "10": {"class_type": "VAEDecode", "inputs": {"samples": ["8", 0], "vae": ["9", 0]}},
+            "11": {"class_type": "SaveImage", "inputs": {"images": ["10", 0], "filename_prefix": filename_prefix}},
+        }
+
+    if architecture == "h3image":
+        # As ComfyUI's image_minimax_h3_image_t2i template, without its optional prompt enhancer.
+        # MiniMaxH3ImageConditioning returns the positive conditioning and the empty image latent;
+        # the negative is that conditioning zeroed out (the model runs at CFG 1). The negative
+        # prompt text is still recorded in the image metadata and sidecars.
+        return {
+            "1": loader_node,
+            "2": {
+                "class_type": "LoraLoaderModelOnly",
+                "inputs": {"model": ["1", 0], "lora_name": lora_name, "strength_model": float(strength)},
+            },
+            "3": {
+                "class_type": "CLIPLoader",
+                "inputs": {"clip_name": clip_name, "type": clip_type or "minimax", "device": "default"},
+            },
+            "9": {"class_type": "VAELoader", "inputs": {"vae_name": vae_name}},
+            "5": {
+                "class_type": "MiniMaxH3ImageConditioning",
+                "inputs": {"clip": ["3", 0], "vae": ["9", 0], "prompt": positive, "width": int(width), "height": int(height)},
+            },
+            "6": {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["5", 0]}},
+            "8": {
+                "class_type": "KSampler",
+                "inputs": {
+                    "model": ["2", 0],
+                    "positive": ["5", 0],
+                    "negative": ["6", 0],
+                    "latent_image": ["5", 1],
+                    "seed": int(seed),
+                    "steps": int(steps),
+                    "cfg": float(cfg),
+                    "sampler_name": sampler,
+                    "scheduler": scheduler,
+                    "denoise": 1.0,
+                },
+            },
+            "10": {"class_type": "VAEDecode", "inputs": {"samples": ["8", 0], "vae": ["9", 0]}},
+            "11": {"class_type": "SaveImage", "inputs": {"images": ["10", 0], "filename_prefix": filename_prefix}},
+        }
+
     if model_loader != "checkpoint":
         raise ComfyError(
-            "This diffusion model does not have a detected Flux2, Z-Image or Krea2 pipeline. "
-            "Use a full checkpoint for standard SD/SDXL models."
+            "This diffusion model does not have a detected Flux2, Z-Image, Krea2, MOSS-Image or "
+            "MiniMax H3 Image pipeline. Use a full checkpoint for standard SD/SDXL models."
         )
     return build_workflow(
         checkpoint=checkpoint,

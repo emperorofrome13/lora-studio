@@ -650,6 +650,11 @@ function updateLorasDirHint() {
     dom.lorasDirHint.textContent += " This folder is not named “loras” — make sure it is the folder ComfyUI actually scans.";
     dom.lorasDirHint.classList.add("is-warn");
   }
+  if (state.status.loras_dir_note) {
+    // e.g. switched to the running ComfyUI's folder, or the folder belongs to another install.
+    dom.lorasDirHint.textContent += ` ${state.status.loras_dir_note}`;
+    dom.lorasDirHint.classList.add("is-warn");
+  }
 }
 
 function updateComfyStatus(data) {
